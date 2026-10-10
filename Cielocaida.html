@@ -1,0 +1,2591 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Dodge the Blocks</title>
+  <style>
+    body {
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #222;
+      font-family: Arial, sans-serif;
+    }
+    canvas {
+      background: #111;
+      border: 2px solid #555;
+      box-sizing: border-box;
+      width: min(1000px, calc(100vw - 4px));
+      height: auto;
+    }
+    body:not(.game-started) canvas {
+      visibility: hidden;
+    }
+    #start-menu {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      box-sizing: border-box;
+      color: #fff;
+      background:
+        radial-gradient(ellipse at 24% 48%, rgba(166, 77, 255, 0.2), transparent 38%),
+        radial-gradient(ellipse at 78% 55%, rgba(77, 166, 255, 0.14), transparent 34%),
+        #17151c;
+    }
+    #start-menu[hidden] {
+      display: none;
+    }
+    .menu-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+      gap: clamp(32px, 8vw, 100px);
+      align-items: center;
+      width: min(1000px, 100%);
+    }
+    .menu-main {
+      text-align: center;
+    }
+    .menu-title {
+      margin: 0 0 36px;
+      font-size: clamp(48px, 8vw, 88px);
+      letter-spacing: 0.04em;
+      line-height: 0.98;
+      text-shadow: 0 0 24px rgba(77, 166, 255, 0.4);
+    }
+    #start-button {
+      padding: 14px 48px;
+      border: 2px solid #b8dcff;
+      border-radius: 8px;
+      color: #101722;
+      background: #4da6ff;
+      font: inherit;
+      font-size: 24px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 0 28px rgba(77, 166, 255, 0.35);
+    }
+    #start-button:hover,
+    #start-button:focus-visible {
+      background: #82c0ff;
+      outline: 3px solid rgba(255, 255, 255, 0.8);
+      outline-offset: 4px;
+    }
+    .menu-controls {
+      padding: 26px 28px;
+      border: 1px solid rgba(184, 220, 255, 0.35);
+      border-radius: 12px;
+      background: rgba(12, 17, 27, 0.72);
+      line-height: 1.55;
+    }
+    .menu-controls h2 {
+      margin: 0 0 14px;
+      color: #82c0ff;
+      font-size: 24px;
+    }
+    .menu-controls p {
+      margin: 10px 0;
+    }
+    .menu-controls strong {
+      color: #ffd83d;
+    }
+    @media (max-width: 650px) {
+      #start-menu {
+        overflow-y: auto;
+      }
+      .menu-layout {
+        grid-template-columns: 1fr;
+        gap: 30px;
+        max-width: 440px;
+      }
+      .menu-title {
+        margin-bottom: 24px;
+      }
+      .menu-controls {
+        padding: 20px 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game" width="1000" height="750"></canvas>
+  <main id="start-menu" aria-labelledby="game-title">
+    <div class="menu-layout">
+      <section class="menu-main">
+        <h1 class="menu-title" id="game-title">Dodge<br>the Blocks</h1>
+        <button id="start-button" type="button">Start Game</button>
+      </section>
+      <aside class="menu-controls" aria-label="Game controls">
+        <h2>How to play</h2>
+        <p><strong>Move:</strong> WASD, or click/touch where you want to go.</p>
+        <p><strong>Pause:</strong> Space</p>
+        <p><strong>Return to menu:</strong> R</p>
+        <p>Dodge enemies, survive, and score points to reach new stages.</p>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const startMenu = document.getElementById("start-menu");
+    const startButton = document.getElementById("start-button");
+    let gameStarted = false;
+
+    startButton.addEventListener("click", () => {
+      gameStarted = true;
+      document.body.classList.add("game-started");
+      startMenu.hidden = true;
+    });
+
+    const player = {
+      x: canvas.width / 2 - 20,
+      y: canvas.height - 60,
+      width: 40,
+      height: 40,
+      speed: 5.5
+    };
+
+    let moveTarget = null;
+    const movementKeys = new Set();
+    let blocks = [];
+    let greenRectangles = [];
+    let triangleEnemies = [];
+    let prismEnemies = [];
+    let prismShards = [];
+    let glitchEnemies = [];
+    let purpleSpheres = [];
+    let purpleSphereWarning = null;
+    let purpleBossSphereWarnings = [];
+    let purpleSplashes = [];
+    let boss = null;
+    let triangleBoss = null;
+    let greenBoss = null;
+    let purpleBoss = null;
+    let bossActionsStarted = false;
+    let score = 0;
+    let lives = 3;
+    let gameOver = false;
+    let paused = false;
+    let spawnTimer = 0;
+    let greenRectSpawnTimer = 0;
+    let breatherTimer = 0;
+    let hitFlashUntil = 0;
+    let enemySpawnTimer = 0;
+    let triangleEnemyUnlocked = false;
+    let purpleSphereUnlocked = false;
+    let purpleSphereSpawnTimer = 0;
+    let prismEnemyUnlocked = false;
+    let prismSpawnTimer = 0;
+    let glitchEnemyUnlocked = false;
+    let glitchSpawnTimer = 0;
+    let glitchSpawnInterval = 0;
+    let bossDefeated = false;
+    let triangleBossDefeated = false;
+    let greenBossDefeated = false;
+    let purpleBossDefeated = false;
+    let nextGreenRectWaveFromLeft = true;
+    const PLAYER_HITBOX_INSET = 8;
+    const BOSS_SCORE = 100;
+    const TRIANGLE_BOSS_SCORE = 300;
+    const BOSS_SIZE = 110;
+    const BOSS_SPEED = 9;
+    const BOSS_WINDUP = 60;
+    const BOSS_WALL_BOUNCE_DISTANCE = 4;
+    const BOSS_REQUIRED_WALL_HITS = 10;
+    const TRIANGLE_BOSS_COUNT = 3;
+    const TRIANGLE_BOSS_VOLLEYS = 10;
+    const TRIANGLE_BOSS_SIZE = 46;
+    const GREEN_RECT_SCORE = 200;
+    const GREEN_RECT_INTERVAL = 120;
+    const GREEN_RECT_WAVE_COUNT = 4;
+    const GREEN_RECT_WAVE_INTERVAL = GREEN_RECT_INTERVAL * GREEN_RECT_WAVE_COUNT / 2;
+    const GREEN_RECT_SPEED = 1.2;
+    const GREEN_RECT_WIDTH = 100;
+    const GREEN_RECT_HEIGHT = 24;
+    const TRIANGLE_ENEMY_SCORE = 45;
+    const TRIANGLE_ENEMY_INTERVAL = 300;
+    const TRIANGLE_ENEMY_TELEGRAPH = 75;
+    const TRIANGLE_ENEMY_SPEED = 11;
+    const TRIANGLE_ENEMY_SIZE = 18;
+    const PURPLE_SPHERE_SCORE = 350;
+    const PURPLE_SPHERE_INTERVAL = 150;
+    const PURPLE_SPHERE_STAGE_FOUR_INTERVAL = 90;
+    const PURPLE_SPHERE_RADIUS = 16;
+    const PURPLE_SPHERE_SPEED = 5.5;
+    const PURPLE_SPHERE_STAGE_FOUR_PRISM_INTERVAL = 240;
+    const PURPLE_SPHERE_REQUIRED_BOUNCES = 7;
+    const PURPLE_SPHERE_TRAIL_LENGTH = 14;
+    const PURPLE_SPLASH_PARTICLE_COUNT = 12;
+    const PURPLE_SPLASH_DURATION = 24;
+    const PURPLE_SPHERE_WARNING_DURATION = 240;
+    const PURPLE_SPHERE_WARNING_MAX_RADIUS = 54;
+    const PRISM_ENEMY_SCORE = 750;
+    const PRISM_ENEMY_INTERVAL = 360;
+    const PRISM_ENEMY_SIZE = 24;
+    const PRISM_ENEMY_SPEED = 45;
+    const PRISM_ENEMY_FINAL_SPEED = 60;
+    const PRISM_ENEMY_AIM_DURATION = 180;
+    const PRISM_ENEMY_TRAIL_LENGTH = 18;
+    const PRISM_SHARD_DURATION = 48;
+    const PRISM_SHARD_COUNT = 12;
+    const PRISM_SHARD_MAX_COUNT = 600;
+    const PRISM_ENEMY_STAGE_FIVE_INTERVAL = PRISM_ENEMY_INTERVAL / 3;
+    const GLITCH_ENEMY_SCORE = 1000;
+    const GLITCH_ENEMY_INTERVAL = 600;
+    const GLITCH_ENEMY_MIN_PATTERN_DURATION = 4 * 120;
+    const GLITCH_ENEMY_MAX_PATTERN_DURATION = 15 * 120;
+    const GLITCH_ENEMY_RADIUS = 32;
+    const GLITCH_ENEMY_REQUIRED_WALL_HITS = 35;
+    const GREEN_BOSS_SCORE = 500;
+    const GREEN_BOSS_SIZE = { width: 240, height: 64 };
+    const GREEN_BOSS_SPEED = 8;
+    const GREEN_BOSS_INTRO_DELAY = 120;
+    const GREEN_BOSS_REQUIRED_DODGES = 10;
+    const PURPLE_BOSS_SCORE = 900;
+    const PURPLE_BOSS_RADIUS = 54;
+    const PURPLE_BOSS_SPEED = 5.2;
+    const PURPLE_BOSS_REQUIRED_WALL_HITS = 20;
+
+    document.addEventListener("keydown", (e) => {
+      if (gameStarted && e.key.toLowerCase() === "r" && !e.repeat) {
+        restart();
+        gameStarted = false;
+        document.body.classList.remove("game-started");
+        startMenu.hidden = false;
+        startButton.focus();
+        return;
+      }
+      if (!gameStarted) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (!e.repeat && !gameOver) paused = !paused;
+        return;
+      }
+      if ((e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4") && !e.repeat) {
+        startBossCheckpoint(Number(e.key));
+        return;
+      }
+      if (e.key.toLowerCase() === "q" && !e.repeat) {
+        defeatActiveBoss();
+        return;
+      }
+      const movementKey = e.key.toLowerCase();
+      if (["w", "a", "s", "d"].includes(movementKey)) {
+        e.preventDefault();
+        if (!paused && !gameOver) {
+          if (!e.repeat) beginBossActions();
+          movementKeys.add(movementKey);
+          moveTarget = null;
+          activePointerId = null;
+        }
+        return;
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      movementKeys.delete(e.key.toLowerCase());
+    });
+
+    window.addEventListener("blur", () => movementKeys.clear());
+
+    function setMoveTarget(e) {
+      const bounds = canvas.getBoundingClientRect();
+      const x = (e.clientX - bounds.left) * canvas.width / bounds.width;
+      const y = (e.clientY - bounds.top) * canvas.height / bounds.height;
+
+      moveTarget = {
+        x: Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, x)),
+        y: Math.max(player.height / 2, Math.min(canvas.height - player.height / 2, y))
+      };
+    }
+
+    let activePointerId = null;
+
+    function beginBossActions() {
+      if (boss || triangleBoss || greenBoss || purpleBoss) bossActionsStarted = true;
+    }
+
+    canvas.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || paused || gameOver) return;
+      beginBossActions();
+      activePointerId = e.pointerId;
+      canvas.setPointerCapture(e.pointerId);
+      setMoveTarget(e);
+    });
+
+    canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerId === activePointerId) {
+        beginBossActions();
+        setMoveTarget(e);
+      }
+    });
+
+    function stopPointerMove(e) {
+      if (e.pointerId !== activePointerId) return;
+      activePointerId = null;
+      moveTarget = null;
+    }
+
+    canvas.addEventListener("pointerup", stopPointerMove);
+    canvas.addEventListener("pointercancel", stopPointerMove);
+    canvas.addEventListener("lostpointercapture", stopPointerMove);
+
+    function restart() {
+      player.x = canvas.width / 2 - player.width / 2;
+      player.y = canvas.height - 60;
+      moveTarget = null;
+      movementKeys.clear();
+      activePointerId = null;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      prismEnemies = [];
+      prismShards = [];
+      glitchEnemies = [];
+      purpleSpheres = [];
+      purpleSphereWarning = null;
+      purpleBossSphereWarnings = [];
+      purpleSplashes = [];
+      boss = null;
+      triangleBoss = null;
+      greenBoss = null;
+      purpleBoss = null;
+      bossActionsStarted = false;
+      score = 0;
+      lives = 3;
+      gameOver = false;
+      paused = false;
+      spawnTimer = 0;
+      greenRectSpawnTimer = 0;
+      breatherTimer = 0;
+      hitFlashUntil = 0;
+      enemySpawnTimer = 0;
+      triangleEnemyUnlocked = false;
+      purpleSphereUnlocked = false;
+      purpleSphereSpawnTimer = 0;
+      prismEnemyUnlocked = false;
+      prismSpawnTimer = 0;
+      glitchEnemyUnlocked = false;
+      glitchSpawnTimer = 0;
+      glitchSpawnInterval = GLITCH_ENEMY_INTERVAL;
+      bossDefeated = false;
+      triangleBossDefeated = false;
+      greenBossDefeated = false;
+      purpleBossDefeated = false;
+      nextGreenRectWaveFromLeft = true;
+    }
+
+    function startBossCheckpoint(stage) {
+      restart();
+      if (stage === 1) {
+        score = BOSS_SCORE;
+        spawnBoss();
+      } else if (stage === 2) {
+        score = TRIANGLE_BOSS_SCORE;
+        bossDefeated = true;
+        triangleEnemyUnlocked = true;
+        spawnTriangleBoss();
+      } else if (stage === 3) {
+        score = GREEN_BOSS_SCORE;
+        bossDefeated = true;
+        triangleBossDefeated = true;
+        triangleEnemyUnlocked = true;
+        purpleSphereUnlocked = true;
+        spawnGreenBoss();
+      } else if (stage === 4) {
+        score = PURPLE_BOSS_SCORE;
+        bossDefeated = true;
+        triangleBossDefeated = true;
+        greenBossDefeated = true;
+        triangleEnemyUnlocked = true;
+        purpleSphereUnlocked = true;
+        prismEnemyUnlocked = true;
+        spawnPurpleBoss();
+      }
+    }
+
+    function defeatStageOneBoss() {
+      if (!boss) return;
+      boss = null;
+      bossDefeated = true;
+      lives++;
+      score += 20;
+      blocks = [];
+      greenRectangles = [];
+      enemySpawnTimer = 0;
+    }
+
+    function defeatStageTwoBoss() {
+      if (!triangleBoss) return;
+      triangleBoss = null;
+      triangleBossDefeated = true;
+      lives++;
+      score += 20;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      greenRectSpawnTimer = GREEN_RECT_WAVE_INTERVAL - 1;
+      enemySpawnTimer = 0;
+    }
+
+    function defeatStageThreeBoss() {
+      if (!greenBoss) return;
+      greenBoss = null;
+      greenBossDefeated = true;
+      lives++;
+      score += 20;
+    }
+
+    function defeatStageFourBoss() {
+      if (!purpleBoss) return;
+      purpleBoss = null;
+      purpleBossDefeated = true;
+      lives++;
+      score += 20;
+    }
+
+    function defeatActiveBoss() {
+      if (boss) defeatStageOneBoss();
+      else if (triangleBoss) defeatStageTwoBoss();
+      else if (greenBoss) defeatStageThreeBoss();
+      else if (purpleBoss) defeatStageFourBoss();
+    }
+
+    function spawnBlock() {
+      const size = 40;
+      const x = Math.random() * (canvas.width - size);
+
+      blocks.push({
+        x: x,
+        y: -size,
+        width: size,
+        height: size,
+        speed: 2.2
+      });
+    }
+
+    function createPurpleSphere(edge) {
+      const radius = PURPLE_SPHERE_RADIUS;
+      let x;
+      let y;
+      let angle;
+      if (edge < 2) {
+        x = edge === 0 ? radius : canvas.width - radius;
+        y = radius + Math.random() * (canvas.height - radius * 2);
+        angle = edge === 0
+          ? (Math.random() - 0.5) * Math.PI / 2
+          : Math.PI + (Math.random() - 0.5) * Math.PI / 2;
+      } else {
+        x = radius + Math.random() * (canvas.width - radius * 2);
+        y = edge === 2 ? radius : canvas.height - radius;
+        angle = edge === 2
+          ? Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 2
+          : -Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 2;
+      }
+      return {
+        x: x,
+        y: y,
+        dx: Math.cos(angle),
+        dy: Math.sin(angle),
+        radius: radius,
+        speed: PURPLE_SPHERE_SPEED,
+        bounces: 0,
+        trail: []
+      };
+    }
+
+    function spawnPurpleSphere() {
+      const firstEdge = Math.floor(Math.random() * 4);
+      const edges = [firstEdge];
+      if (greenBossDefeated && score < PRISM_ENEMY_SCORE) {
+        const secondEdge = (firstEdge + 1 + Math.floor(Math.random() * 3)) % 4;
+        edges.push(secondEdge);
+      }
+      purpleSphereWarning = {
+        timer: PURPLE_SPHERE_WARNING_DURATION,
+        spheres: edges.map(createPurpleSphere)
+      };
+    }
+
+    function createPurpleSphereWarning(edge) {
+      return {
+        timer: PURPLE_SPHERE_WARNING_DURATION,
+        spheres: [createPurpleSphere(edge)]
+      };
+    }
+
+    function createPurpleBossSphere(wallHits) {
+      const radius = PURPLE_BOSS_RADIUS;
+      const angle = (Math.random() - 0.5) * Math.PI / 2;
+      return {
+        x: canvas.width / 2,
+        y: radius,
+        dx: Math.sin(angle),
+        dy: Math.cos(angle),
+        radius: radius,
+        speed: PURPLE_BOSS_SPEED,
+        wallHits: wallHits,
+        trail: []
+      };
+    }
+
+    function spawnPurpleBoss(wallHits) {
+      bossActionsStarted = false;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      prismEnemies = [];
+      purpleSpheres = [];
+      purpleSphereWarning = null;
+      purpleBossSphereWarnings = [];
+      purpleSplashes = [];
+      purpleBoss = createPurpleBossSphere(wallHits || 0);
+    }
+
+    function createPurpleSplash(x, y) {
+      purpleSplashes.push({
+        x: x,
+        y: y,
+        age: 0,
+        particles: Array.from({ length: PURPLE_SPLASH_PARTICLE_COUNT }, () => {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 2 + Math.random() * 5;
+          return {
+            x: x,
+            y: y,
+            dx: Math.cos(angle) * speed,
+            dy: Math.sin(angle) * speed,
+            radius: 2 + Math.random() * 3
+          };
+        })
+      });
+    }
+
+    function createGreenBossCharge() {
+      const edge = Math.floor(Math.random() * 4);
+      const margin = Math.hypot(GREEN_BOSS_SIZE.width, GREEN_BOSS_SIZE.height) / 2;
+      let x;
+      let y;
+      if (edge === 0 || edge === 1) {
+        x = edge === 0 ? -margin : canvas.width + margin;
+        y = margin + Math.random() * (canvas.height - margin * 2);
+      } else {
+        x = margin + Math.random() * (canvas.width - margin * 2);
+        y = edge === 2 ? -margin : canvas.height + margin;
+      }
+
+      const dx = player.x + player.width / 2 - x;
+      const dy = player.y + player.height / 2 - y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const angle = Math.atan2(dy, dx);
+      return {
+        x: x,
+        y: y,
+        dx: dx / distance,
+        dy: dy / distance,
+        angle: angle
+      };
+    }
+
+    function createGreenBossIntroCharge() {
+      return {
+        x: canvas.width / 2,
+        y: Math.hypot(GREEN_BOSS_SIZE.width, GREEN_BOSS_SIZE.height) / 2,
+        dx: 0,
+        dy: 1,
+        angle: Math.PI / 2
+      };
+    }
+
+    function spawnGreenBoss() {
+      bossActionsStarted = false;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      prismEnemies = [];
+      purpleSpheres = [];
+      purpleSphereWarning = null;
+      greenBoss = {
+        state: "intro-wait",
+        introTimer: GREEN_BOSS_INTRO_DELAY,
+        dodges: 0,
+        charge: createGreenBossIntroCharge()
+      };
+    }
+
+    function greenBossHitsPlayer(playerHitbox) {
+      const charge = greenBoss.charge;
+      const axisX = { x: Math.cos(charge.angle), y: Math.sin(charge.angle) };
+      const axisY = { x: -axisX.y, y: axisX.x };
+      const centerX = (playerHitbox.left + playerHitbox.right) / 2;
+      const centerY = (playerHitbox.top + playerHitbox.bottom) / 2;
+      const halfPlayerWidth = (playerHitbox.right - playerHitbox.left) / 2;
+      const halfPlayerHeight = (playerHitbox.bottom - playerHitbox.top) / 2;
+      const halfBossWidth = GREEN_BOSS_SIZE.width / 2;
+      const halfBossHeight = GREEN_BOSS_SIZE.height / 2;
+      const deltaX = centerX - charge.x;
+      const deltaY = centerY - charge.y;
+
+      return [
+        { x: 1, y: 0 },
+        { x: 0, y: 1 },
+        axisX,
+        axisY
+      ].every(axis => {
+        const centerDistance = Math.abs(deltaX * axis.x + deltaY * axis.y);
+        const playerRadius = halfPlayerWidth * Math.abs(axis.x) + halfPlayerHeight * Math.abs(axis.y);
+        const bossRadius = halfBossWidth * Math.abs(axis.x * axisX.x + axis.y * axisX.y) +
+          halfBossHeight * Math.abs(axis.x * axisY.x + axis.y * axisY.y);
+        return centerDistance <= playerRadius + bossRadius;
+      });
+    }
+
+    function spawnGreenRectangle() {
+      const fromLeft = Math.random() < 0.5;
+      const y = GREEN_RECT_HEIGHT + Math.random() * (canvas.height - GREEN_RECT_HEIGHT * 2);
+      greenRectangles.push({
+        x: fromLeft ? -GREEN_RECT_WIDTH : canvas.width,
+        y: y,
+        width: GREEN_RECT_WIDTH,
+        height: GREEN_RECT_HEIGHT,
+        speed: fromLeft ? GREEN_RECT_SPEED : -GREEN_RECT_SPEED,
+        enteredCanvas: false
+      });
+    }
+
+    function spawnGreenRectangleWave() {
+      const fromLeft = nextGreenRectWaveFromLeft;
+      const y = GREEN_RECT_HEIGHT + Math.random() * (canvas.height - GREEN_RECT_HEIGHT * 2);
+      const spacing = GREEN_RECT_WIDTH + 8;
+
+      for (let i = 0; i < GREEN_RECT_WAVE_COUNT; i++) {
+        greenRectangles.push({
+          x: fromLeft
+            ? -GREEN_RECT_WIDTH - (GREEN_RECT_WAVE_COUNT - 1 - i) * spacing
+            : canvas.width + i * spacing,
+          y: y,
+          width: GREEN_RECT_WIDTH,
+          height: GREEN_RECT_HEIGHT,
+          speed: fromLeft ? GREEN_RECT_SPEED : -GREEN_RECT_SPEED
+        });
+      }
+
+      nextGreenRectWaveFromLeft = !nextGreenRectWaveFromLeft;
+    }
+
+    function awardScore(points) {
+      score = bossDefeated ? score + points : Math.min(BOSS_SCORE, score + points);
+    }
+
+    function spawnTriangleEnemy() {
+      const size = TRIANGLE_ENEMY_SIZE;
+      const edge = Math.floor(Math.random() * 3);
+      let x;
+      let y;
+      if (edge === 0) {
+        x = size + 8;
+        y = size + Math.random() * (canvas.height - size * 2);
+      } else if (edge === 1) {
+        x = canvas.width - size - 8;
+        y = size + Math.random() * (canvas.height - size * 2);
+      } else {
+        x = size + Math.random() * (canvas.width - size * 2);
+        y = size + 8;
+      }
+      const dx = player.x + player.width / 2 - x;
+      const dy = player.y + player.height / 2 - y;
+      const distance = Math.hypot(dx, dy) || 1;
+
+      triangleEnemies.push({
+        x: x,
+        y: y,
+        dx: dx / distance,
+        dy: dy / distance,
+        size: size,
+        speed: TRIANGLE_ENEMY_SPEED,
+        state: "aiming",
+        telegraphTimer: TRIANGLE_ENEMY_TELEGRAPH
+      });
+    }
+
+    function aimPrismEnemy(enemy, targetX, targetY) {
+      const dx = targetX - enemy.x;
+      const dy = targetY - enemy.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      enemy.targetX = targetX;
+      enemy.targetY = targetY;
+      enemy.dx = dx / distance;
+      enemy.dy = dy / distance;
+    }
+
+    function aimPrismEnemyAtPlayer(enemy) {
+      const targetX = player.x + player.width / 2;
+      const targetY = player.y + player.height / 2;
+      aimPrismEnemy(enemy, targetX, targetY);
+    }
+
+    function aimPrismEnemyThroughPlayerToEdge(enemy) {
+      const dx = player.x + player.width / 2 - enemy.x;
+      const dy = player.y + player.height / 2 - enemy.y;
+      const length = Math.hypot(dx, dy);
+      const directionX = length === 0 ? 1 : dx / length;
+      const directionY = length === 0 ? 0 : dy / length;
+      const edgeDistances = [];
+      if (directionX > 0) edgeDistances.push((canvas.width + PRISM_ENEMY_SIZE - enemy.x) / directionX);
+      else if (directionX < 0) edgeDistances.push((-PRISM_ENEMY_SIZE - enemy.x) / directionX);
+      if (directionY > 0) edgeDistances.push((canvas.height + PRISM_ENEMY_SIZE - enemy.y) / directionY);
+      else if (directionY < 0) edgeDistances.push((-PRISM_ENEMY_SIZE - enemy.y) / directionY);
+      const distanceToEdge = Math.min(...edgeDistances.filter(distance => distance > 0));
+      aimPrismEnemy(
+        enemy,
+        enemy.x + directionX * distanceToEdge,
+        enemy.y + directionY * distanceToEdge
+      );
+    }
+
+    function spawnPrismEnemy() {
+      const edge = Math.floor(Math.random() * 4);
+      let x;
+      let y;
+      if (edge < 2) {
+        x = edge === 0 ? PRISM_ENEMY_SIZE : canvas.width - PRISM_ENEMY_SIZE;
+        y = PRISM_ENEMY_SIZE + Math.random() * (canvas.height - PRISM_ENEMY_SIZE * 2);
+      } else {
+        x = PRISM_ENEMY_SIZE + Math.random() * (canvas.width - PRISM_ENEMY_SIZE * 2);
+        y = edge === 2 ? PRISM_ENEMY_SIZE : canvas.height - PRISM_ENEMY_SIZE;
+      }
+      const enemy = {
+        x: x,
+        y: y,
+        dx: 0,
+        dy: 0,
+        targetX: x,
+        targetY: y,
+        state: "aiming-first",
+        aimTimer: PRISM_ENEMY_AIM_DURATION,
+        trail: []
+      };
+      aimPrismEnemyAtPlayer(enemy);
+      prismEnemies.push(enemy);
+    }
+
+    function getPrismCollisionPoint(first, second) {
+      const firstStartX = first.previousX === undefined ? first.x : first.previousX;
+      const firstStartY = first.previousY === undefined ? first.y : first.previousY;
+      const secondStartX = second.previousX === undefined ? second.x : second.previousX;
+      const secondStartY = second.previousY === undefined ? second.y : second.previousY;
+      const relativeStartX = firstStartX - secondStartX;
+      const relativeStartY = firstStartY - secondStartY;
+      const relativeVelocityX = (first.x - firstStartX) - (second.x - secondStartX);
+      const relativeVelocityY = (first.y - firstStartY) - (second.y - secondStartY);
+      const velocityLengthSquared = relativeVelocityX ** 2 + relativeVelocityY ** 2;
+      const closestTime = velocityLengthSquared === 0
+        ? 1
+        : Math.max(0, Math.min(1,
+          -(relativeStartX * relativeVelocityX + relativeStartY * relativeVelocityY) /
+          velocityLengthSquared
+        ));
+      const closestX = relativeStartX + relativeVelocityX * closestTime;
+      const closestY = relativeStartY + relativeVelocityY * closestTime;
+      if (Math.hypot(closestX, closestY) >= PRISM_ENEMY_SIZE * 1.3) return null;
+
+      return {
+        x: (firstStartX + (first.x - firstStartX) * closestTime +
+          secondStartX + (second.x - secondStartX) * closestTime) / 2,
+        y: (firstStartY + (first.y - firstStartY) * closestTime +
+          secondStartY + (second.y - secondStartY) * closestTime) / 2
+      };
+    }
+
+    function createPrismShards(x, y) {
+      for (let i = 0; i < PRISM_SHARD_COUNT; i++) {
+        if (prismShards.length >= PRISM_SHARD_MAX_COUNT) break;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 6;
+        prismShards.push({
+          x: x,
+          y: y,
+          dx: Math.cos(angle) * speed,
+          dy: Math.sin(angle) * speed,
+          age: 0,
+          size: 3 + Math.random() * 5
+        });
+      }
+    }
+
+    function chooseGlitchPattern(previousPattern) {
+      const patterns = ["block", "triangle", "rectangle", "sphere", "prism"];
+      const availablePatterns = patterns.filter(pattern => pattern !== previousPattern);
+      return availablePatterns[Math.floor(Math.random() * availablePatterns.length)];
+    }
+
+    function aimGlitchEnemyAtPlayer(enemy) {
+      const dx = player.x + player.width / 2 - enemy.x;
+      const dy = player.y + player.height / 2 - enemy.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      enemy.dx = dx / distance;
+      enemy.dy = dy / distance;
+      enemy.targetX = player.x + player.width / 2;
+      enemy.targetY = player.y + player.height / 2;
+    }
+
+    function setGlitchPattern(enemy, pattern) {
+      enemy.pattern = pattern;
+      enemy.patternTimer = GLITCH_ENEMY_MIN_PATTERN_DURATION +
+        Math.floor(Math.random() * (
+          GLITCH_ENEMY_MAX_PATTERN_DURATION - GLITCH_ENEMY_MIN_PATTERN_DURATION + 1
+        ));
+      enemy.state = "moving";
+      if (pattern === "block") {
+        enemy.dx = 0;
+        enemy.dy = 1;
+      } else if (pattern === "triangle") {
+        aimGlitchEnemyAtPlayer(enemy);
+        enemy.state = "aiming";
+        enemy.aimTimer = TRIANGLE_ENEMY_TELEGRAPH;
+      } else if (pattern === "prism") {
+        aimGlitchEnemyAtPlayer(enemy);
+        enemy.state = "aiming-prism-first";
+        enemy.aimTimer = PRISM_ENEMY_AIM_DURATION;
+      } else if (pattern === "rectangle") {
+        enemy.dx = Math.random() < 0.5 ? -1 : 1;
+        enemy.dy = 0;
+      } else {
+        const angle = Math.random() * Math.PI * 2;
+        enemy.dx = Math.cos(angle);
+        enemy.dy = Math.sin(angle);
+      }
+    }
+
+    function spawnGlitchEnemy() {
+      const edge = Math.floor(Math.random() * 4);
+      const enemy = {
+        x: edge < 2
+          ? edge === 0 ? GLITCH_ENEMY_RADIUS : canvas.width - GLITCH_ENEMY_RADIUS
+          : GLITCH_ENEMY_RADIUS + Math.random() * (canvas.width - GLITCH_ENEMY_RADIUS * 2),
+        y: edge < 2
+          ? GLITCH_ENEMY_RADIUS + Math.random() * (canvas.height - GLITCH_ENEMY_RADIUS * 2)
+          : edge === 2 ? GLITCH_ENEMY_RADIUS : canvas.height - GLITCH_ENEMY_RADIUS,
+        dx: 0,
+        dy: 1,
+        targetX: 0,
+        targetY: 0,
+        trail: [],
+        wallHits: 0,
+        pattern: null,
+        patternTimer: 0,
+        state: "moving"
+      };
+      setGlitchPattern(enemy, chooseGlitchPattern(null));
+      glitchEnemies.push(enemy);
+    }
+
+    function placeGlitchEnemyAtWall(enemy, edge) {
+      const selectedEdge = edge === undefined ? Math.floor(Math.random() * 4) : edge;
+      if (selectedEdge === 0) {
+        enemy.x = GLITCH_ENEMY_RADIUS;
+        enemy.y = GLITCH_ENEMY_RADIUS + Math.random() * (canvas.height - GLITCH_ENEMY_RADIUS * 2);
+      } else if (selectedEdge === 1) {
+        enemy.x = canvas.width - GLITCH_ENEMY_RADIUS;
+        enemy.y = GLITCH_ENEMY_RADIUS + Math.random() * (canvas.height - GLITCH_ENEMY_RADIUS * 2);
+      } else if (selectedEdge === 2) {
+        enemy.x = GLITCH_ENEMY_RADIUS + Math.random() * (canvas.width - GLITCH_ENEMY_RADIUS * 2);
+        enemy.y = GLITCH_ENEMY_RADIUS;
+      } else {
+        enemy.x = GLITCH_ENEMY_RADIUS + Math.random() * (canvas.width - GLITCH_ENEMY_RADIUS * 2);
+        enemy.y = canvas.height - GLITCH_ENEMY_RADIUS;
+      }
+    }
+
+    function getGlitchRayEndpoint(enemy, dx, dy) {
+      const distances = [];
+      if (dx > 0) distances.push((canvas.width - GLITCH_ENEMY_RADIUS - enemy.x) / dx);
+      else if (dx < 0) distances.push((GLITCH_ENEMY_RADIUS - enemy.x) / dx);
+      if (dy > 0) distances.push((canvas.height - GLITCH_ENEMY_RADIUS - enemy.y) / dy);
+      else if (dy < 0) distances.push((GLITCH_ENEMY_RADIUS - enemy.y) / dy);
+      const distance = Math.min(...distances.filter(value => value >= 0));
+      return { x: enemy.x + dx * distance, y: enemy.y + dy * distance };
+    }
+
+    function completeGlitchWallHits(enemy, count) {
+      enemy.wallHits += count;
+      score += count;
+      if (enemy.wallHits < GLITCH_ENEMY_REQUIRED_WALL_HITS) return false;
+      glitchEnemies.splice(glitchEnemies.indexOf(enemy), 1);
+      glitchSpawnTimer = 0;
+      glitchSpawnInterval = Math.max(1, Math.floor(glitchSpawnInterval / 3));
+      score += 100;
+      createPrismShards(enemy.x, enemy.y);
+      spawnGlitchEnemy();
+      spawnGlitchEnemy();
+      return true;
+    }
+
+    function updateGlitchEnemy(enemy, playerHitbox) {
+      enemy.patternTimer--;
+      if (enemy.patternTimer <= 0) {
+        setGlitchPattern(enemy, chooseGlitchPattern(enemy.pattern));
+      }
+
+      if (
+        enemy.state === "aiming" ||
+        enemy.state === "aiming-prism-first" ||
+        enemy.state === "aiming-prism-second" ||
+        enemy.state === "aiming-prism-final"
+      ) {
+        enemy.aimTimer--;
+        if (enemy.aimTimer <= 0) {
+          if (enemy.state === "aiming") enemy.state = "charging";
+          else if (enemy.state === "aiming-prism-first") enemy.state = "charging-prism-first";
+          else if (enemy.state === "aiming-prism-second") enemy.state = "charging-prism-second";
+          else enemy.state = "charging-prism-final";
+        }
+        return;
+      }
+
+      let wallHits = 0;
+      if (enemy.pattern === "block") {
+        enemy.y += 6.6;
+        if (enemy.y - GLITCH_ENEMY_RADIUS > canvas.height) {
+          placeGlitchEnemyAtWall(enemy, 2);
+          enemy.dx = 0;
+          enemy.dy = 1;
+          wallHits = 1;
+        }
+      } else if (enemy.pattern === "triangle") {
+        enemy.x += enemy.dx * TRIANGLE_ENEMY_SPEED;
+        enemy.y += enemy.dy * TRIANGLE_ENEMY_SPEED;
+        if (
+          enemy.x < -GLITCH_ENEMY_RADIUS ||
+          enemy.x > canvas.width + GLITCH_ENEMY_RADIUS ||
+          enemy.y < -GLITCH_ENEMY_RADIUS ||
+          enemy.y > canvas.height + GLITCH_ENEMY_RADIUS
+        ) {
+          wallHits = 1;
+          placeGlitchEnemyAtWall(enemy);
+          aimGlitchEnemyAtPlayer(enemy);
+          enemy.state = "aiming";
+          enemy.aimTimer = TRIANGLE_ENEMY_TELEGRAPH;
+        }
+      } else if (enemy.pattern === "rectangle") {
+        enemy.x += enemy.dx * GREEN_RECT_SPEED * 3;
+        if (enemy.x < -GLITCH_ENEMY_RADIUS || enemy.x > canvas.width + GLITCH_ENEMY_RADIUS) {
+          wallHits = 1;
+          placeGlitchEnemyAtWall(enemy, enemy.dx > 0 ? 0 : 1);
+        }
+      } else if (enemy.pattern === "sphere") {
+        enemy.x += enemy.dx * PURPLE_SPHERE_SPEED;
+        enemy.y += enemy.dy * PURPLE_SPHERE_SPEED;
+        let hitWall = false;
+        if (enemy.x - GLITCH_ENEMY_RADIUS < 0) {
+          enemy.x = GLITCH_ENEMY_RADIUS;
+          enemy.dx = Math.abs(enemy.dx);
+          hitWall = true;
+        } else if (enemy.x + GLITCH_ENEMY_RADIUS > canvas.width) {
+          enemy.x = canvas.width - GLITCH_ENEMY_RADIUS;
+          enemy.dx = -Math.abs(enemy.dx);
+          hitWall = true;
+        }
+        if (enemy.y - GLITCH_ENEMY_RADIUS < 0) {
+          enemy.y = GLITCH_ENEMY_RADIUS;
+          enemy.dy = Math.abs(enemy.dy);
+          hitWall = true;
+        } else if (enemy.y + GLITCH_ENEMY_RADIUS > canvas.height) {
+          enemy.y = canvas.height - GLITCH_ENEMY_RADIUS;
+          enemy.dy = -Math.abs(enemy.dy);
+          hitWall = true;
+        }
+        if (hitWall) wallHits = 1;
+      } else {
+        const speed = enemy.state === "charging-prism-final"
+          ? PRISM_ENEMY_FINAL_SPEED
+          : PRISM_ENEMY_SPEED;
+        const distanceToTarget = Math.hypot(enemy.targetX - enemy.x, enemy.targetY - enemy.y);
+        const directedCharge = enemy.state !== "charging-prism-final";
+        const reachedTarget = directedCharge && distanceToTarget <= speed;
+        if (reachedTarget) {
+          enemy.x = enemy.targetX;
+          enemy.y = enemy.targetY;
+        } else {
+          enemy.x += enemy.dx * speed;
+          enemy.y += enemy.dy * speed;
+        }
+        enemy.trail.push({ x: enemy.x, y: enemy.y, age: 0 });
+        const outside =
+          enemy.x < -PRISM_ENEMY_SIZE ||
+          enemy.x > canvas.width + PRISM_ENEMY_SIZE ||
+          enemy.y < -PRISM_ENEMY_SIZE ||
+          enemy.y > canvas.height + PRISM_ENEMY_SIZE;
+
+        if (reachedTarget) {
+          if (enemy.state === "charging-prism-first") {
+            aimGlitchEnemyAtPlayer(enemy);
+            enemy.state = "aiming-prism-second";
+            enemy.aimTimer = PRISM_ENEMY_AIM_DURATION;
+          } else if (enemy.state === "charging-prism-second") {
+            aimGlitchEnemyAtPlayer(enemy);
+            const endpoint = getGlitchRayEndpoint(enemy, enemy.dx, enemy.dy);
+            enemy.targetX = endpoint.x;
+            enemy.targetY = endpoint.y;
+            enemy.state = "aiming-prism-final";
+            enemy.aimTimer = PRISM_ENEMY_AIM_DURATION;
+          }
+        } else if (outside) {
+          wallHits = 1;
+          placeGlitchEnemyAtWall(enemy);
+          aimGlitchEnemyAtPlayer(enemy);
+          enemy.state = "aiming-prism-first";
+          enemy.aimTimer = PRISM_ENEMY_AIM_DURATION;
+        }
+      }
+
+      if (wallHits > 0 && completeGlitchWallHits(enemy, wallHits)) return;
+
+      const closestX = Math.max(playerHitbox.left, Math.min(enemy.x, playerHitbox.right));
+      const closestY = Math.max(playerHitbox.top, Math.min(enemy.y, playerHitbox.bottom));
+      if (Math.hypot(enemy.x - closestX, enemy.y - closestY) < GLITCH_ENEMY_RADIUS) {
+        loseLife();
+      }
+    }
+
+    function prismChargeHitsPlayer(startX, startY, endX, endY, playerHitbox) {
+      const padding = PRISM_ENEMY_SIZE * 0.75;
+      const left = playerHitbox.left - padding;
+      const right = playerHitbox.right + padding;
+      const top = playerHitbox.top - padding;
+      const bottom = playerHitbox.bottom + padding;
+      const dx = endX - startX;
+      const dy = endY - startY;
+      let enter = 0;
+      let exit = 1;
+      const clips = [
+        [-dx, startX - left],
+        [dx, right - startX],
+        [-dy, startY - top],
+        [dy, bottom - startY]
+      ];
+
+      for (const [direction, distance] of clips) {
+        if (direction === 0) {
+          if (distance < 0) return false;
+          continue;
+        }
+        const ratio = distance / direction;
+        if (direction < 0) enter = Math.max(enter, ratio);
+        else exit = Math.min(exit, ratio);
+        if (enter > exit) return false;
+      }
+      return true;
+    }
+
+    function advancePrismEnemy(enemy) {
+      if (
+        enemy.state === "aiming-first" ||
+        enemy.state === "aiming-second" ||
+        enemy.state === "aiming-final"
+      ) {
+        enemy.aimTimer--;
+        if (enemy.aimTimer <= 0) {
+          enemy.state = enemy.state === "aiming-first"
+            ? "charging-first"
+            : enemy.state === "aiming-second"
+              ? "charging-second"
+              : "charging-final";
+        }
+        return false;
+      }
+
+      const speed = enemy.state === "charging-final" ? PRISM_ENEMY_FINAL_SPEED : PRISM_ENEMY_SPEED;
+      if (enemy.state === "charging-final") {
+        enemy.x += enemy.dx * speed;
+        enemy.y += enemy.dy * speed;
+        enemy.trail.push({ x: enemy.x, y: enemy.y, age: 0 });
+        return (
+          enemy.x < -PRISM_ENEMY_SIZE ||
+          enemy.x > canvas.width + PRISM_ENEMY_SIZE ||
+          enemy.y < -PRISM_ENEMY_SIZE ||
+          enemy.y > canvas.height + PRISM_ENEMY_SIZE
+        );
+      }
+
+      const dx = enemy.targetX - enemy.x;
+      const dy = enemy.targetY - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > speed) {
+        enemy.dx = dx / distance;
+        enemy.dy = dy / distance;
+        enemy.x += enemy.dx * speed;
+        enemy.y += enemy.dy * speed;
+        enemy.trail.push({ x: enemy.x, y: enemy.y, age: 0 });
+        return false;
+      }
+
+      enemy.x = enemy.targetX;
+      enemy.y = enemy.targetY;
+      if (enemy.state === "charging-first") {
+        aimPrismEnemyAtPlayer(enemy);
+        enemy.aimTimer = PRISM_ENEMY_AIM_DURATION;
+        enemy.state = "aiming-second";
+        return false;
+      }
+      if (enemy.state === "charging-second") {
+        aimPrismEnemyThroughPlayerToEdge(enemy);
+        enemy.aimTimer = PRISM_ENEMY_AIM_DURATION;
+        enemy.state = "aiming-final";
+        return false;
+      }
+      return true;
+    }
+
+    function createTriangleBossMember(index, edge) {
+      const size = TRIANGLE_BOSS_SIZE;
+      const position = (index + 1) / (TRIANGLE_BOSS_COUNT + 1);
+      let x;
+      let y;
+      if (edge === 0) {
+        x = size + 8;
+        y = size + position * (canvas.height - size * 2);
+      } else if (edge === 1) {
+        x = canvas.width - size - 8;
+        y = size + position * (canvas.height - size * 2);
+      } else {
+        x = size + position * (canvas.width - size * 2);
+        y = size + 8;
+      }
+      const dx = player.x + player.width / 2 - x;
+      const dy = player.y + player.height / 2 - y;
+      const distance = Math.hypot(dx, dy) || 1;
+
+      return {
+        x: x,
+        y: y,
+        dx: dx / distance,
+        dy: dy / distance,
+        size: size,
+        speed: TRIANGLE_ENEMY_SPEED,
+        state: "aiming",
+        telegraphTimer: TRIANGLE_ENEMY_TELEGRAPH
+      };
+    }
+
+    function createTriangleBossMembers() {
+      const edge = Math.floor(Math.random() * 3);
+      return Array.from(
+        { length: TRIANGLE_BOSS_COUNT },
+        (_, index) => createTriangleBossMember(index, edge)
+      );
+    }
+
+    function spawnTriangleBoss() {
+      bossActionsStarted = false;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      purpleSpheres = [];
+      prismEnemies = [];
+      purpleSphereWarning = null;
+      purpleSplashes = [];
+      triangleBoss = {
+        members: createTriangleBossMembers(),
+        completedVolleys: 0
+      };
+    }
+
+    function spawnBoss() {
+      bossActionsStarted = false;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      prismEnemies = [];
+      purpleSpheres = [];
+      purpleSphereWarning = null;
+      purpleSplashes = [];
+      boss = {
+        x: (canvas.width - BOSS_SIZE) / 2,
+        y: 36,
+        size: BOSS_SIZE,
+        dx: 0,
+        dy: 1,
+        vx: 0,
+        vy: 0,
+        speed: BOSS_SPEED,
+        state: "aiming",
+        aimTimer: BOSS_WINDUP,
+        aimDuration: BOSS_WINDUP,
+        wallHits: 0
+      };
+    }
+
+    function loseLife() {
+      lives--;
+      hitFlashUntil = performance.now() + 250;
+      blocks = [];
+      greenRectangles = [];
+      triangleEnemies = [];
+      prismEnemies = [];
+      purpleSpheres = [];
+      purpleSphereWarning = null;
+      purpleBossSphereWarnings = [];
+      purpleSplashes = [];
+      breatherTimer = 90;
+      spawnTimer = 30;
+      enemySpawnTimer = 0;
+      if (lives === 0) gameOver = true;
+    }
+
+    function update() {
+      if (!gameStarted || gameOver || paused) return;
+
+      for (let i = purpleBossSphereWarnings.length - 1; i >= 0; i--) {
+        const warning = purpleBossSphereWarnings[i];
+        warning.timer--;
+        if (warning.timer <= 0) {
+          purpleSpheres.push(...warning.spheres);
+          purpleBossSphereWarnings.splice(i, 1);
+        }
+      }
+
+      if (movementKeys.size > 0) {
+        const dx = Number(movementKeys.has("d")) - Number(movementKeys.has("a"));
+        const dy = Number(movementKeys.has("s")) - Number(movementKeys.has("w"));
+        const distance = Math.hypot(dx, dy);
+        if (distance > 0) {
+          player.x += dx / distance * player.speed;
+          player.y += dy / distance * player.speed;
+        }
+      } else if (moveTarget) {
+        const dx = moveTarget.x - (player.x + player.width / 2);
+        const dy = moveTarget.y - (player.y + player.height / 2);
+        const distance = Math.hypot(dx, dy);
+
+        if (distance <= player.speed) {
+          player.x = moveTarget.x - player.width / 2;
+          player.y = moveTarget.y - player.height / 2;
+          moveTarget = null;
+        } else {
+          player.x += dx / distance * player.speed;
+          player.y += dy / distance * player.speed;
+        }
+      }
+
+      if (player.x < 0) player.x = 0;
+      if (player.x + player.width > canvas.width) {
+        player.x = canvas.width - player.width;
+      }
+      if (player.y < 0) player.y = 0;
+      if (player.y + player.height > canvas.height) {
+        player.y = canvas.height - player.height;
+      }
+
+      const playerHitbox = {
+        left: player.x + PLAYER_HITBOX_INSET,
+        right: player.x + player.width - PLAYER_HITBOX_INSET,
+        top: player.y + PLAYER_HITBOX_INSET,
+        bottom: player.y + player.height - PLAYER_HITBOX_INSET
+      };
+
+      if (score >= BOSS_SCORE && !boss && !bossDefeated) spawnBoss();
+      if (bossDefeated && score >= TRIANGLE_BOSS_SCORE && !triangleBoss && !triangleBossDefeated) {
+        spawnTriangleBoss();
+      }
+      if (triangleBossDefeated && score >= GREEN_BOSS_SCORE && !greenBoss && !greenBossDefeated) {
+        spawnGreenBoss();
+      }
+      if (greenBossDefeated && score >= PURPLE_BOSS_SCORE && !purpleBoss && !purpleBossDefeated) {
+        spawnPurpleBoss();
+      }
+
+      if (purpleBoss && bossActionsStarted) {
+        purpleBoss.trail.push({ x: purpleBoss.x, y: purpleBoss.y, age: 0 });
+        if (purpleBoss.trail.length > PURPLE_SPHERE_TRAIL_LENGTH) purpleBoss.trail.shift();
+        for (const point of purpleBoss.trail) point.age++;
+        purpleBoss.x += purpleBoss.dx * purpleBoss.speed;
+        purpleBoss.y += purpleBoss.dy * purpleBoss.speed;
+        let hitEdge = false;
+        let sphereSpawnEdge = 0;
+
+        if (purpleBoss.x - purpleBoss.radius < 0) {
+          purpleBoss.x = purpleBoss.radius;
+          purpleBoss.dx = Math.abs(purpleBoss.dx);
+          hitEdge = true;
+          sphereSpawnEdge = 0;
+        } else if (purpleBoss.x + purpleBoss.radius > canvas.width) {
+          purpleBoss.x = canvas.width - purpleBoss.radius;
+          purpleBoss.dx = -Math.abs(purpleBoss.dx);
+          hitEdge = true;
+          sphereSpawnEdge = 1;
+        }
+        if (purpleBoss.y - purpleBoss.radius < 0) {
+          purpleBoss.y = purpleBoss.radius;
+          purpleBoss.dy = Math.abs(purpleBoss.dy);
+          hitEdge = true;
+          if (sphereSpawnEdge === 0) sphereSpawnEdge = 2;
+        } else if (purpleBoss.y + purpleBoss.radius > canvas.height) {
+          purpleBoss.y = canvas.height - purpleBoss.radius;
+          purpleBoss.dy = -Math.abs(purpleBoss.dy);
+          hitEdge = true;
+          if (sphereSpawnEdge === 0) sphereSpawnEdge = 3;
+        }
+
+        if (hitEdge) {
+          purpleBoss.wallHits++;
+          awardScore(3);
+          purpleBossSphereWarnings.push(createPurpleSphereWarning(sphereSpawnEdge));
+          createPurpleSplash(purpleBoss.x, purpleBoss.y);
+          if (purpleBoss.wallHits >= PURPLE_BOSS_REQUIRED_WALL_HITS) {
+            defeatStageFourBoss();
+          }
+        }
+
+        if (purpleBoss) {
+          const closestX = Math.max(playerHitbox.left, Math.min(purpleBoss.x, playerHitbox.right));
+          const closestY = Math.max(playerHitbox.top, Math.min(purpleBoss.y, playerHitbox.bottom));
+          if (Math.hypot(purpleBoss.x - closestX, purpleBoss.y - closestY) < purpleBoss.radius) {
+            const wallHits = purpleBoss.wallHits;
+            loseLife();
+            if (!gameOver) purpleBoss = createPurpleBossSphere(wallHits);
+          }
+        }
+      } else if (greenBoss && bossActionsStarted) {
+        if (greenBoss.state === "intro-wait") {
+          greenBoss.introTimer--;
+          if (greenBoss.introTimer <= 0) greenBoss.state = "intro-charge";
+        } else {
+          const charge = greenBoss.charge;
+          charge.x += charge.dx * GREEN_BOSS_SPEED;
+          charge.y += charge.dy * GREEN_BOSS_SPEED;
+          const chargeMargin = Math.hypot(GREEN_BOSS_SIZE.width, GREEN_BOSS_SIZE.height) / 2;
+
+          if (greenBoss.state === "intro-charge" && charge.y - chargeMargin > canvas.height) {
+            greenBoss.state = "charging";
+            greenBoss.charge = createGreenBossCharge();
+          } else if (greenBoss.state === "charging" && (
+            charge.x + chargeMargin < 0 ||
+            charge.x - chargeMargin > canvas.width ||
+            charge.y + chargeMargin < 0 ||
+            charge.y - chargeMargin > canvas.height
+          )) {
+            const dodges = greenBoss.dodges + 1;
+            if (dodges >= GREEN_BOSS_REQUIRED_DODGES) {
+              defeatStageThreeBoss();
+            } else {
+              greenBoss = {
+                state: "charging",
+                dodges: dodges,
+                charge: createGreenBossCharge()
+              };
+            }
+          } else if (greenBoss && greenBossHitsPlayer(playerHitbox)) {
+            loseLife();
+            greenBoss.state = "charging";
+            greenBoss.charge = createGreenBossCharge();
+          }
+        }
+      } else if (!greenBoss && breatherTimer > 0) {
+        breatherTimer--;
+      } else if (!greenBoss && !purpleBoss) {
+        spawnTimer++;
+        if (spawnTimer > 30) {
+          if (!boss && !bossDefeated && (score < 60 || Math.random() < 0.5)) spawnBlock();
+          spawnTimer = 0;
+        }
+
+        if (triangleBossDefeated && !greenBossDefeated) {
+          greenRectSpawnTimer++;
+          if (greenRectSpawnTimer >= GREEN_RECT_WAVE_INTERVAL) {
+            spawnGreenRectangleWave();
+            greenRectSpawnTimer = 0;
+          }
+        } else if (!greenBossDefeated && bossDefeated && !triangleBoss && score >= GREEN_RECT_SCORE) {
+          greenRectSpawnTimer++;
+          if (greenRectSpawnTimer >= GREEN_RECT_INTERVAL) {
+            spawnGreenRectangle();
+            greenRectSpawnTimer = 0;
+          }
+        }
+
+        if (triangleBossDefeated && !purpleBossDefeated && score >= PURPLE_SPHERE_SCORE) {
+          if (!purpleSphereUnlocked) {
+            purpleSphereUnlocked = true;
+            spawnPurpleSphere();
+          } else if (purpleSphereWarning) {
+            purpleSphereWarning.timer--;
+            if (purpleSphereWarning.timer <= 0) {
+              const spheres = greenBossDefeated && score >= PRISM_ENEMY_SCORE
+                ? purpleSphereWarning.spheres.slice(0, 1)
+                : purpleSphereWarning.spheres;
+              purpleSpheres.push(...spheres);
+              purpleSphereWarning = null;
+            }
+          } else {
+            purpleSphereSpawnTimer++;
+            const spawnInterval = greenBossDefeated
+              ? score >= PRISM_ENEMY_SCORE
+                ? PURPLE_SPHERE_STAGE_FOUR_PRISM_INTERVAL
+                : PURPLE_SPHERE_STAGE_FOUR_INTERVAL
+              : PURPLE_SPHERE_INTERVAL;
+            if (purpleSphereSpawnTimer >= spawnInterval) {
+              spawnPurpleSphere();
+              purpleSphereSpawnTimer = 0;
+            }
+          }
+        }
+
+        if (greenBossDefeated && score >= PRISM_ENEMY_SCORE && score < GLITCH_ENEMY_SCORE) {
+          if (!prismEnemyUnlocked) {
+            prismEnemyUnlocked = true;
+            spawnPrismEnemy();
+          } else {
+            prismSpawnTimer++;
+            const prismSpawnInterval = purpleBossDefeated
+              ? score >= GLITCH_ENEMY_SCORE
+                ? GLITCH_ENEMY_INTERVAL
+                : PRISM_ENEMY_STAGE_FIVE_INTERVAL
+              : PRISM_ENEMY_INTERVAL;
+            if (prismSpawnTimer >= prismSpawnInterval) {
+              spawnPrismEnemy();
+              prismSpawnTimer = 0;
+            }
+          }
+        } else if (purpleBossDefeated && score >= GLITCH_ENEMY_SCORE) {
+          prismEnemies = [];
+          prismSpawnTimer = 0;
+        }
+
+        if (purpleBossDefeated && score >= GLITCH_ENEMY_SCORE) {
+          if (!glitchEnemyUnlocked) {
+            glitchEnemyUnlocked = true;
+            spawnGlitchEnemy();
+          } else if (glitchEnemies.length === 0) {
+            glitchSpawnTimer++;
+            if (glitchSpawnTimer >= glitchSpawnInterval) {
+              spawnGlitchEnemy();
+              glitchSpawnTimer = 0;
+            }
+          }
+        }
+
+        if (!triangleBossDefeated && score >= TRIANGLE_ENEMY_SCORE) {
+          if (!boss && !triangleBoss && !triangleEnemyUnlocked) {
+            spawnTriangleEnemy();
+            triangleEnemyUnlocked = true;
+          } else if (!boss && !triangleBoss) {
+            enemySpawnTimer++;
+            const stageOneInterval = score >= 75 ? TRIANGLE_ENEMY_INTERVAL / 2 : TRIANGLE_ENEMY_INTERVAL;
+            const spawnInterval = bossDefeated && score < GREEN_RECT_SCORE
+              ? stageOneInterval / 3
+              : stageOneInterval;
+            if (enemySpawnTimer >= spawnInterval) {
+              spawnTriangleEnemy();
+              enemySpawnTimer = 0;
+            }
+          }
+        }
+      }
+
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        b.y += b.speed;
+
+        // Collision check
+        if (
+          playerHitbox.left < b.x + b.width &&
+          playerHitbox.right > b.x &&
+          playerHitbox.top < b.y + b.height &&
+          playerHitbox.bottom > b.y
+        ) {
+          loseLife();
+          break;
+        }
+
+        if (b.y > canvas.height) {
+          blocks.splice(i, 1);
+          awardScore(1);
+        }
+      }
+
+      for (let i = greenRectangles.length - 1; i >= 0; i--) {
+        const rectangle = greenRectangles[i];
+        rectangle.x += rectangle.speed;
+        if (rectangle.x + rectangle.width > 0 && rectangle.x < canvas.width) {
+          rectangle.enteredCanvas = true;
+        }
+
+        if (rectangle.enteredCanvas && (rectangle.x + rectangle.width < 0 || rectangle.x > canvas.width)) {
+          greenRectangles.splice(i, 1);
+          awardScore(1);
+          continue;
+        }
+
+        if (
+          playerHitbox.left < rectangle.x + rectangle.width &&
+          playerHitbox.right > rectangle.x &&
+          playerHitbox.top < rectangle.y + rectangle.height &&
+          playerHitbox.bottom > rectangle.y
+        ) {
+          loseLife();
+          break;
+        }
+      }
+
+      for (let i = purpleSpheres.length - 1; i >= 0; i--) {
+        const sphere = purpleSpheres[i];
+        sphere.trail.push({ x: sphere.x, y: sphere.y, age: 0 });
+        if (sphere.trail.length > PURPLE_SPHERE_TRAIL_LENGTH) sphere.trail.shift();
+        for (const point of sphere.trail) point.age++;
+        sphere.x += sphere.dx * sphere.speed;
+        sphere.y += sphere.dy * sphere.speed;
+        let hitEdge = false;
+
+        if (sphere.x - sphere.radius < 0) {
+          sphere.x = sphere.radius;
+          sphere.dx = Math.abs(sphere.dx);
+          hitEdge = true;
+        } else if (sphere.x + sphere.radius > canvas.width) {
+          sphere.x = canvas.width - sphere.radius;
+          sphere.dx = -Math.abs(sphere.dx);
+          hitEdge = true;
+        }
+        if (sphere.y - sphere.radius < 0) {
+          sphere.y = sphere.radius;
+          sphere.dy = Math.abs(sphere.dy);
+          hitEdge = true;
+        } else if (sphere.y + sphere.radius > canvas.height) {
+          sphere.y = canvas.height - sphere.radius;
+          sphere.dy = -Math.abs(sphere.dy);
+          hitEdge = true;
+        }
+
+        if (hitEdge) {
+          sphere.bounces++;
+          awardScore(3);
+          createPurpleSplash(sphere.x, sphere.y);
+          if (sphere.bounces >= PURPLE_SPHERE_REQUIRED_BOUNCES) {
+            purpleSpheres.splice(i, 1);
+            continue;
+          }
+        }
+
+        const closestX = Math.max(playerHitbox.left, Math.min(sphere.x, playerHitbox.right));
+        const closestY = Math.max(playerHitbox.top, Math.min(sphere.y, playerHitbox.bottom));
+        if (Math.hypot(sphere.x - closestX, sphere.y - closestY) < sphere.radius) {
+          loseLife();
+          break;
+        }
+      }
+
+      if (purpleBoss && bossActionsStarted) {
+        for (const sphere of purpleSpheres) {
+          const dx = sphere.x - purpleBoss.x;
+          const dy = sphere.y - purpleBoss.y;
+          const distance = Math.hypot(dx, dy);
+          const minimumDistance = sphere.radius + purpleBoss.radius;
+          if (distance >= minimumDistance) continue;
+
+          const normalX = distance === 0 ? 1 : dx / distance;
+          const normalY = distance === 0 ? 0 : dy / distance;
+          const overlap = minimumDistance - distance;
+          const smallMass = sphere.radius * sphere.radius;
+          const bossMass = purpleBoss.radius * purpleBoss.radius;
+          const totalMass = smallMass + bossMass;
+          sphere.x += normalX * overlap * bossMass / totalMass;
+          sphere.y += normalY * overlap * bossMass / totalMass;
+          purpleBoss.x -= normalX * overlap * smallMass / totalMass;
+          purpleBoss.y -= normalY * overlap * smallMass / totalMass;
+
+          const sphereVelocityX = sphere.dx * sphere.speed;
+          const sphereVelocityY = sphere.dy * sphere.speed;
+          const bossVelocityX = purpleBoss.dx * purpleBoss.speed;
+          const bossVelocityY = purpleBoss.dy * purpleBoss.speed;
+          const relativeNormalVelocity =
+            (sphereVelocityX - bossVelocityX) * normalX +
+            (sphereVelocityY - bossVelocityY) * normalY;
+          if (relativeNormalVelocity < 0) {
+            const impulse = 2 * relativeNormalVelocity / totalMass;
+            const nextSphereVelocityX = sphereVelocityX - impulse * bossMass * normalX;
+            const nextSphereVelocityY = sphereVelocityY - impulse * bossMass * normalY;
+            const nextBossVelocityX = bossVelocityX + impulse * smallMass * normalX;
+            const nextBossVelocityY = bossVelocityY + impulse * smallMass * normalY;
+            sphere.speed = Math.hypot(nextSphereVelocityX, nextSphereVelocityY);
+            sphere.dx = nextSphereVelocityX / sphere.speed;
+            sphere.dy = nextSphereVelocityY / sphere.speed;
+            purpleBoss.speed = Math.hypot(nextBossVelocityX, nextBossVelocityY);
+            purpleBoss.dx = nextBossVelocityX / purpleBoss.speed;
+            purpleBoss.dy = nextBossVelocityY / purpleBoss.speed;
+          }
+        }
+      }
+
+      for (let i = 0; i < purpleSpheres.length; i++) {
+        const first = purpleSpheres[i];
+        for (let j = i + 1; j < purpleSpheres.length; j++) {
+          const second = purpleSpheres[j];
+          const dx = second.x - first.x;
+          const dy = second.y - first.y;
+          const distance = Math.hypot(dx, dy);
+          const minimumDistance = first.radius + second.radius;
+          if (distance >= minimumDistance) continue;
+
+          const normalX = distance === 0 ? 1 : dx / distance;
+          const normalY = distance === 0 ? 0 : dy / distance;
+          const overlap = minimumDistance - distance;
+          first.x -= normalX * overlap / 2;
+          first.y -= normalY * overlap / 2;
+          second.x += normalX * overlap / 2;
+          second.y += normalY * overlap / 2;
+
+          const relativeVelocity = (second.dx * second.speed - first.dx * first.speed) * normalX +
+            (second.dy * second.speed - first.dy * first.speed) * normalY;
+          if (relativeVelocity < 0) {
+            const firstVelocityX = first.dx * first.speed + relativeVelocity * normalX;
+            const firstVelocityY = first.dy * first.speed + relativeVelocity * normalY;
+            const secondVelocityX = second.dx * second.speed - relativeVelocity * normalX;
+            const secondVelocityY = second.dy * second.speed - relativeVelocity * normalY;
+            first.speed = Math.hypot(firstVelocityX, firstVelocityY);
+            second.speed = Math.hypot(secondVelocityX, secondVelocityY);
+            first.dx = firstVelocityX / first.speed;
+            first.dy = firstVelocityY / first.speed;
+            second.dx = secondVelocityX / second.speed;
+            second.dy = secondVelocityY / second.speed;
+          }
+          createPurpleSplash((first.x + second.x) / 2, (first.y + second.y) / 2);
+        }
+      }
+
+      for (let i = purpleSplashes.length - 1; i >= 0; i--) {
+        const splash = purpleSplashes[i];
+        splash.age++;
+        for (const particle of splash.particles) {
+          particle.x += particle.dx;
+          particle.y += particle.dy;
+          particle.dx *= 0.96;
+          particle.dy *= 0.96;
+        }
+        if (splash.age >= PURPLE_SPLASH_DURATION) purpleSplashes.splice(i, 1);
+      }
+
+      for (let i = prismEnemies.length - 1; i >= 0; i--) {
+        const enemy = prismEnemies[i];
+        enemy.previousX = enemy.x;
+        enemy.previousY = enemy.y;
+        for (const point of enemy.trail) point.age++;
+        enemy.trail = enemy.trail.filter(point => point.age < PRISM_ENEMY_TRAIL_LENGTH);
+        const escaped = advancePrismEnemy(enemy);
+
+        const closestX = Math.max(playerHitbox.left, Math.min(enemy.x, playerHitbox.right));
+        const closestY = Math.max(playerHitbox.top, Math.min(enemy.y, playerHitbox.bottom));
+        if (
+          prismChargeHitsPlayer(enemy.previousX, enemy.previousY, enemy.x, enemy.y, playerHitbox) ||
+          Math.hypot(enemy.x - closestX, enemy.y - closestY) < PRISM_ENEMY_SIZE * 0.75
+        ) {
+          loseLife();
+          break;
+        }
+        if (escaped) {
+          prismEnemies.splice(i, 1);
+          awardScore(5);
+        }
+      }
+
+      const prismCollisionCellSize = PRISM_ENEMY_SIZE * 4;
+      const prismCollisionBuckets = new Map();
+      const testedPrismPairs = new Set();
+      const collidedPrismIndices = new Set();
+      for (let i = 0; i < prismEnemies.length; i++) {
+        const enemy = prismEnemies[i];
+        const left = Math.min(enemy.previousX, enemy.x) - PRISM_ENEMY_SIZE;
+        const right = Math.max(enemy.previousX, enemy.x) + PRISM_ENEMY_SIZE;
+        const top = Math.min(enemy.previousY, enemy.y) - PRISM_ENEMY_SIZE;
+        const bottom = Math.max(enemy.previousY, enemy.y) + PRISM_ENEMY_SIZE;
+        const minColumn = Math.floor(left / prismCollisionCellSize);
+        const maxColumn = Math.floor(right / prismCollisionCellSize);
+        const minRow = Math.floor(top / prismCollisionCellSize);
+        const maxRow = Math.floor(bottom / prismCollisionCellSize);
+
+        for (let row = minRow; row <= maxRow; row++) {
+          for (let column = minColumn; column <= maxColumn; column++) {
+            const cellKey = `${column},${row}`;
+            let bucket = prismCollisionBuckets.get(cellKey);
+            if (!bucket) {
+              bucket = [];
+              prismCollisionBuckets.set(cellKey, bucket);
+            }
+            bucket.push(i);
+          }
+        }
+      }
+
+      for (const bucket of prismCollisionBuckets.values()) {
+        for (let firstIndex = 0; firstIndex < bucket.length; firstIndex++) {
+          const i = bucket[firstIndex];
+          if (collidedPrismIndices.has(i)) continue;
+          for (let secondIndex = firstIndex + 1; secondIndex < bucket.length; secondIndex++) {
+            const j = bucket[secondIndex];
+            if (collidedPrismIndices.has(j)) continue;
+            const pairKey = `${i},${j}`;
+            if (testedPrismPairs.has(pairKey)) continue;
+            testedPrismPairs.add(pairKey);
+
+            const collisionPoint = getPrismCollisionPoint(prismEnemies[i], prismEnemies[j]);
+            if (!collisionPoint) continue;
+            collidedPrismIndices.add(i);
+            collidedPrismIndices.add(j);
+            createPrismShards(collisionPoint.x, collisionPoint.y);
+            awardScore(5);
+            break;
+          }
+        }
+      }
+
+      if (collidedPrismIndices.size > 0) {
+        prismEnemies = prismEnemies.filter((_, index) => !collidedPrismIndices.has(index));
+      }
+
+      for (let i = prismShards.length - 1; i >= 0; i--) {
+        const shard = prismShards[i];
+        shard.x += shard.dx;
+        shard.y += shard.dy;
+        shard.dx *= 0.97;
+        shard.dy *= 0.97;
+        shard.age++;
+        if (shard.age >= PRISM_SHARD_DURATION) prismShards.splice(i, 1);
+      }
+
+      for (let i = glitchEnemies.length - 1; i >= 0; i--) {
+        updateGlitchEnemy(glitchEnemies[i], playerHitbox);
+      }
+
+      for (let i = triangleEnemies.length - 1; i >= 0; i--) {
+        const enemy = triangleEnemies[i];
+
+        if (enemy.state === "aiming") {
+          enemy.telegraphTimer--;
+          if (enemy.telegraphTimer <= 0) enemy.state = "launching";
+          continue;
+        }
+
+        enemy.x += enemy.dx * enemy.speed;
+        enemy.y += enemy.dy * enemy.speed;
+
+        if (
+          enemy.x < -enemy.size ||
+          enemy.x > canvas.width + enemy.size ||
+          enemy.y < -enemy.size ||
+          enemy.y > canvas.height + enemy.size
+        ) {
+          triangleEnemies.splice(i, 1);
+          awardScore(2);
+          continue;
+        }
+
+        if (
+          playerHitbox.left < enemy.x + enemy.size &&
+          playerHitbox.right > enemy.x - enemy.size &&
+          playerHitbox.top < enemy.y + enemy.size &&
+          playerHitbox.bottom > enemy.y - enemy.size
+        ) {
+          loseLife();
+          break;
+        }
+      }
+
+      if (triangleBoss && bossActionsStarted) {
+        let allMembersExited = true;
+        for (const enemy of triangleBoss.members) {
+          if (enemy.exited) continue;
+          if (enemy.state === "aiming") {
+            enemy.telegraphTimer--;
+            if (enemy.telegraphTimer <= 0) enemy.state = "launching";
+          } else {
+            enemy.x += enemy.dx * enemy.speed;
+            enemy.y += enemy.dy * enemy.speed;
+
+            if (
+              enemy.x < -enemy.size ||
+              enemy.x > canvas.width + enemy.size ||
+              enemy.y < -enemy.size ||
+              enemy.y > canvas.height + enemy.size
+            ) {
+              enemy.exited = true;
+            }
+          }
+
+          if (!enemy.exited) allMembersExited = false;
+
+          if (!enemy.exited &&
+            playerHitbox.left < enemy.x + enemy.size &&
+            playerHitbox.right > enemy.x - enemy.size &&
+            playerHitbox.top < enemy.y + enemy.size &&
+            playerHitbox.bottom > enemy.y - enemy.size
+          ) {
+            loseLife();
+            triangleBoss.members = createTriangleBossMembers();
+            break;
+          }
+        }
+
+        if (triangleBoss && allMembersExited) {
+          triangleBoss.completedVolleys++;
+          if (triangleBoss.completedVolleys >= TRIANGLE_BOSS_VOLLEYS) {
+            defeatStageTwoBoss();
+          } else {
+            triangleBoss.members = createTriangleBossMembers();
+          }
+        }
+      }
+
+      if (boss && bossActionsStarted) {
+        if (boss.state === "aiming") {
+          const dx = player.x + player.width / 2 - (boss.x + boss.size / 2);
+          const dy = player.y + player.height / 2 - (boss.y + boss.size / 2);
+          const distance = Math.hypot(dx, dy) || 1;
+          boss.dx = dx / distance;
+          boss.dy = dy / distance;
+          if (boss.aimTimer > 0) {
+            boss.aimTimer--;
+          } else {
+            boss.state = "charging";
+            boss.vx = boss.dx * boss.speed;
+            boss.vy = boss.dy * boss.speed;
+          }
+        } else {
+          boss.x += boss.vx;
+          boss.y += boss.vy;
+
+          let hitWall = false;
+          if (boss.x < 0) {
+            boss.x = BOSS_WALL_BOUNCE_DISTANCE;
+            hitWall = true;
+          } else if (boss.x + boss.size > canvas.width) {
+            boss.x = canvas.width - boss.size - BOSS_WALL_BOUNCE_DISTANCE;
+            hitWall = true;
+          }
+          if (boss.y < 0) {
+            boss.y = BOSS_WALL_BOUNCE_DISTANCE;
+            hitWall = true;
+          } else if (boss.y + boss.size > canvas.height) {
+            boss.y = canvas.height - boss.size - BOSS_WALL_BOUNCE_DISTANCE;
+            hitWall = true;
+          }
+
+          if (hitWall) {
+            boss.wallHits++;
+            if (boss.wallHits >= BOSS_REQUIRED_WALL_HITS) {
+              defeatStageOneBoss();
+            } else {
+              boss.state = "aiming";
+              boss.aimTimer = BOSS_WINDUP;
+              boss.aimDuration = BOSS_WINDUP;
+              boss.vx = 0;
+              boss.vy = 0;
+            }
+          }
+        }
+
+        if (boss && boss.state === "charging" &&
+          playerHitbox.left < boss.x + boss.size &&
+          playerHitbox.right > boss.x &&
+          playerHitbox.top < boss.y + boss.size &&
+          playerHitbox.bottom > boss.y
+        ) {
+          loseLife();
+          boss.x = (canvas.width - boss.size) / 2;
+          boss.y = 36;
+          boss.state = "aiming";
+          boss.aimTimer = 120;
+          boss.aimDuration = 120;
+          boss.vx = 0;
+          boss.vy = 0;
+        }
+      }
+
+    }
+
+    function drawBackground() {
+      ctx.save();
+
+      if (!bossDefeated) {
+        ctx.fillStyle = "#1b1012";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "rgba(255, 77, 77, 0.08)";
+        ctx.lineWidth = 2;
+        for (let x = 80; x < canvas.width; x += 160) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "rgba(255, 77, 77, 0.06)";
+        for (let x = 40; x < canvas.width; x += 160) {
+          for (let y = 70; y < canvas.height; y += 180) {
+            ctx.fillRect(x, y, 40, 40);
+          }
+        }
+      } else if (!triangleBossDefeated) {
+        ctx.fillStyle = "#101722";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "rgba(77, 166, 255, 0.09)";
+        ctx.lineWidth = 2;
+        for (let row = 0; row < 4; row++) {
+          for (let column = 0; column < 6; column++) {
+            const x = column * 190 + (row % 2) * 95;
+            const y = row * 210 + 45;
+            ctx.beginPath();
+            ctx.moveTo(x, y - 34);
+            ctx.lineTo(x + 30, y + 22);
+            ctx.lineTo(x - 30, y + 22);
+            ctx.closePath();
+            ctx.stroke();
+          }
+        }
+      } else if (!greenBossDefeated) {
+        ctx.fillStyle = "#101a15";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "rgba(53, 201, 107, 0.08)";
+        ctx.lineWidth = 2;
+        for (let y = 70; y < canvas.height; y += 100) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      } else if (!purpleBossDefeated) {
+        ctx.fillStyle = "#130f1d";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const glow = ctx.createRadialGradient(
+          canvas.width / 2,
+          canvas.height / 2,
+          40,
+          canvas.width / 2,
+          canvas.height / 2,
+          canvas.width * 0.7
+        );
+        glow.addColorStop(0, "rgba(110, 47, 158, 0.16)");
+        glow.addColorStop(1, "rgba(29, 17, 46, 0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "rgba(184, 126, 235, 0.07)";
+        ctx.lineWidth = 2;
+        for (let row = 0; row < 4; row++) {
+          for (let column = 0; column < 5; column++) {
+            const x = 110 + column * 200 + (row % 2) * 60;
+            const y = 90 + row * 185;
+            const radius = 28 + (row + column) % 3 * 8;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(x, y, radius + 10, -Math.PI * 0.8, Math.PI * 0.55);
+            ctx.stroke();
+          }
+        }
+      } else {
+        ctx.fillStyle = "#1d120c";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const glow = ctx.createRadialGradient(
+          canvas.width / 2,
+          canvas.height / 2,
+          40,
+          canvas.width / 2,
+          canvas.height / 2,
+          canvas.width * 0.75
+        );
+        glow.addColorStop(0, "rgba(176, 83, 22, 0.14)");
+        glow.addColorStop(1, "rgba(48, 24, 10, 0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "rgba(255, 142, 54, 0.07)";
+        ctx.lineWidth = 2;
+        for (let y = 80; y < canvas.height; y += 150) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+        for (let row = 0; row < 4; row++) {
+          for (let column = 0; column < 6; column++) {
+            const x = 80 + column * 180 + (row % 2) * 70;
+            const y = 80 + row * 180;
+            ctx.beginPath();
+            ctx.moveTo(x, y - 30);
+            ctx.lineTo(x + 26, y - 14);
+            ctx.lineTo(x + 26, y + 14);
+            ctx.lineTo(x, y + 30);
+            ctx.lineTo(x - 26, y + 14);
+            ctx.lineTo(x - 26, y - 14);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x - 26, y - 14);
+            ctx.lineTo(x + 26, y + 14);
+            ctx.moveTo(x + 26, y - 14);
+            ctx.lineTo(x - 26, y + 14);
+            ctx.stroke();
+          }
+        }
+        if (score >= GLITCH_ENEMY_SCORE) {
+          const glitchFrame = Math.floor(performance.now() / 80);
+          const colors = [
+            "rgba(255, 77, 77, 0.20)",
+            "rgba(77, 166, 255, 0.20)",
+            "rgba(53, 201, 107, 0.19)",
+            "rgba(166, 77, 255, 0.20)",
+            "rgba(255, 142, 54, 0.2)"
+          ];
+          for (let band = 0; band < 18; band++) {
+            const y = (band * 43 + glitchFrame * (band % 4 + 1) * 7) % canvas.height;
+            const offset = Math.sin(glitchFrame * 0.7 + band * 4) * 95;
+            ctx.fillStyle = colors[band % colors.length];
+            ctx.fillRect(offset, y, canvas.width * (0.24 + (band % 4) * 0.16), 4 + band % 7);
+          }
+
+          for (let shape = 0; shape < 34; shape++) {
+            const x = (shape * 173 + glitchFrame * (shape % 3 + 1) * 11) % canvas.width;
+            const y = (shape * 97 + Math.floor(glitchFrame / 2) * (shape % 4 + 1) * 9) % canvas.height;
+            const size = 12 + (shape * 19 % 36);
+            ctx.strokeStyle = colors[shape % colors.length];
+            ctx.lineWidth = shape % 3 === 0 ? 3 : 1.5;
+            ctx.beginPath();
+            if (shape % 5 === 0) {
+              ctx.arc(x, y, size * 0.55, 0, Math.PI * 2);
+            } else if (shape % 5 === 1) {
+              ctx.moveTo(x, y - size);
+              ctx.lineTo(x + size * 0.8, y + size * 0.55);
+              ctx.lineTo(x - size * 0.8, y + size * 0.55);
+              ctx.closePath();
+            } else if (shape % 5 === 2) {
+              ctx.rect(x - size / 2, y - size / 2, size, size);
+            } else if (shape % 5 === 3) {
+              ctx.moveTo(x - size, y);
+              ctx.lineTo(x + size, y);
+            } else {
+              ctx.moveTo(x - size * 0.7, y - size * 0.3);
+              ctx.lineTo(x, y - size * 0.6);
+              ctx.lineTo(x + size * 0.7, y - size * 0.3);
+              ctx.lineTo(x + size * 0.7, y + size * 0.3);
+              ctx.lineTo(x, y + size * 0.6);
+              ctx.lineTo(x - size * 0.7, y + size * 0.3);
+              ctx.closePath();
+            }
+            ctx.stroke();
+          }
+
+          if (glitchFrame % 5 < 3) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${glitchFrame % 2 ? 0.06 : 0.035})`;
+            ctx.fillRect(0, (glitchFrame * 31) % canvas.height, canvas.width, 12 + glitchFrame % 22);
+          }
+        }
+      }
+
+      ctx.restore();
+    }
+
+    function drawPurpleSphereWarning(warningState) {
+      const progress = 1 - warningState.timer / PURPLE_SPHERE_WARNING_DURATION;
+      const warningRadius = PURPLE_SPHERE_WARNING_MAX_RADIUS -
+        (PURPLE_SPHERE_WARNING_MAX_RADIUS - PURPLE_SPHERE_RADIUS) * progress;
+      for (const warning of warningState.spheres) {
+        ctx.save();
+        ctx.globalAlpha = 0.38;
+        const gradient = ctx.createRadialGradient(
+          warning.x - warningRadius * 0.35,
+          warning.y - warningRadius * 0.4,
+          warningRadius * 0.08,
+          warning.x,
+          warning.y,
+          warningRadius
+        );
+        gradient.addColorStop(0, "rgba(235, 210, 255, 0.16)");
+        gradient.addColorStop(0.72, "rgba(166, 77, 255, 0.08)");
+        gradient.addColorStop(1, "rgba(166, 77, 255, 0.28)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(warning.x, warning.y, warningRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#d5a6ff";
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(
+          warning.x - warningRadius * 0.28,
+          warning.y - warningRadius * 0.3,
+          Math.max(2, warningRadius * 0.12),
+          0,
+          Math.PI * 2
+        );
+        ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+
+      // Player
+      ctx.fillStyle = "#ffd83d";
+      ctx.beginPath();
+      for (let point = 0; point < 10; point++) {
+        const angle = -Math.PI / 2 + point * Math.PI / 5;
+        const radius = point % 2 === 0 ? player.width / 2 : player.width / 4;
+        const x = player.x + player.width / 2 + Math.cos(angle) * radius;
+        const y = player.y + player.height / 2 + Math.sin(angle) * radius;
+        if (point === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Blocks
+      ctx.fillStyle = "#ff4d4d";
+      for (const b of blocks) {
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+      }
+
+      ctx.fillStyle = "#35c96b";
+      for (const rectangle of greenRectangles) {
+        ctx.fillRect(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+      }
+
+      for (const sphere of purpleSpheres) {
+        for (const point of sphere.trail) {
+          const opacity = 1 - point.age / (PURPLE_SPHERE_TRAIL_LENGTH + 1);
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, sphere.radius * opacity * 0.8, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(166, 77, 255, ${opacity * 0.35})`;
+          ctx.fill();
+        }
+      }
+
+      for (const splash of purpleSplashes) {
+        const opacity = 1 - splash.age / PURPLE_SPLASH_DURATION;
+        for (const particle of splash.particles) {
+          ctx.beginPath();
+          ctx.arc(particle.x, particle.y, particle.radius * opacity, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(213, 166, 255, ${opacity})`;
+          ctx.fill();
+        }
+      }
+
+      for (const sphere of purpleSpheres) {
+        ctx.beginPath();
+        ctx.arc(sphere.x, sphere.y, sphere.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#a64dff";
+        ctx.fill();
+        ctx.strokeStyle = "#d5a6ff";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      for (const shard of prismShards) {
+        const opacity = 1 - shard.age / PRISM_SHARD_DURATION;
+        ctx.save();
+        ctx.translate(shard.x, shard.y);
+        ctx.rotate(Math.atan2(shard.dy, shard.dx));
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = "#ff861f";
+        ctx.beginPath();
+        ctx.moveTo(shard.size, 0);
+        ctx.lineTo(-shard.size * 0.5, shard.size * 0.5);
+        ctx.lineTo(-shard.size * 0.5, -shard.size * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (purpleBoss) {
+        for (const point of purpleBoss.trail) {
+          const opacity = 1 - point.age / (PURPLE_SPHERE_TRAIL_LENGTH + 1);
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, purpleBoss.radius * opacity * 0.8, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(166, 77, 255, ${opacity * 0.3})`;
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.arc(purpleBoss.x, purpleBoss.y, purpleBoss.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#8f35df";
+        ctx.fill();
+        ctx.strokeStyle = "#e0b5ff";
+        ctx.lineWidth = 5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(
+          purpleBoss.x,
+          purpleBoss.y,
+          purpleBoss.radius - 10,
+          -Math.PI / 2,
+          -Math.PI / 2 + Math.PI * 2 * purpleBoss.wallHits / PURPLE_BOSS_REQUIRED_WALL_HITS
+        );
+        ctx.strokeStyle = "#f2d9ff";
+        ctx.lineWidth = 5;
+        ctx.stroke();
+      }
+
+      if (purpleSphereWarning) drawPurpleSphereWarning(purpleSphereWarning);
+      for (const warning of purpleBossSphereWarnings) drawPurpleSphereWarning(warning);
+
+      for (const enemy of prismEnemies) {
+        ctx.save();
+        if (
+          enemy.state === "aiming-first" ||
+          enemy.state === "aiming-second" ||
+          enemy.state === "aiming-final"
+        ) {
+          const remaining = enemy.aimTimer / PRISM_ENEMY_AIM_DURATION;
+          const pulse = 1 + Math.sin(performance.now() / 90) * 0.18;
+          const markerRadius = (8 + (1 - remaining) * 7) * pulse;
+          ctx.strokeStyle = `rgba(255, 134, 31, ${0.2 + (1 - remaining) * 0.55})`;
+          ctx.lineWidth = 2 + (1 - remaining) * 2;
+          ctx.setLineDash([12, 10]);
+          ctx.beginPath();
+          ctx.moveTo(enemy.x, enemy.y);
+          ctx.lineTo(enemy.targetX, enemy.targetY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.globalAlpha = 0.65 + (1 - remaining) * 0.35;
+          ctx.strokeStyle = "#ff9a3c";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(enemy.targetX, enemy.targetY, markerRadius, 0, Math.PI * 2);
+          ctx.moveTo(enemy.targetX - markerRadius * 1.5, enemy.targetY);
+          ctx.lineTo(enemy.targetX + markerRadius * 1.5, enemy.targetY);
+          ctx.moveTo(enemy.targetX, enemy.targetY - markerRadius * 1.5);
+          ctx.lineTo(enemy.targetX, enemy.targetY + markerRadius * 1.5);
+          ctx.stroke();
+        }
+
+        ctx.lineCap = "round";
+        ctx.lineWidth = 5;
+        for (let pointIndex = 0; pointIndex < enemy.trail.length; pointIndex++) {
+          const point = enemy.trail[pointIndex];
+          const next = enemy.trail[pointIndex + 1] || enemy;
+          const opacity = 1 - point.age / PRISM_ENEMY_TRAIL_LENGTH;
+          ctx.strokeStyle = `rgba(255, 105, 20, ${opacity * 0.7})`;
+          ctx.beginPath();
+          ctx.moveTo(point.x, point.y);
+          ctx.lineTo(next.x, next.y);
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(255, 198, 111, ${opacity * 0.75})`;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.lineWidth = 5;
+        }
+
+        ctx.translate(enemy.x, enemy.y);
+        ctx.rotate(Math.atan2(enemy.dy, enemy.dx) + Math.PI / 2);
+        ctx.beginPath();
+        ctx.moveTo(0, -PRISM_ENEMY_SIZE);
+        ctx.lineTo(PRISM_ENEMY_SIZE * 0.65, -PRISM_ENEMY_SIZE * 0.35);
+        ctx.lineTo(PRISM_ENEMY_SIZE * 0.65, PRISM_ENEMY_SIZE * 0.35);
+        ctx.lineTo(0, PRISM_ENEMY_SIZE);
+        ctx.lineTo(-PRISM_ENEMY_SIZE * 0.65, PRISM_ENEMY_SIZE * 0.35);
+        ctx.lineTo(-PRISM_ENEMY_SIZE * 0.65, -PRISM_ENEMY_SIZE * 0.35);
+        ctx.closePath();
+        ctx.fillStyle = "#ff861f";
+        ctx.fill();
+        ctx.strokeStyle = "#ffd08a";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, -PRISM_ENEMY_SIZE);
+        ctx.lineTo(0, PRISM_ENEMY_SIZE);
+        ctx.moveTo(-PRISM_ENEMY_SIZE * 0.65, -PRISM_ENEMY_SIZE * 0.35);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(PRISM_ENEMY_SIZE * 0.65, -PRISM_ENEMY_SIZE * 0.35);
+        ctx.moveTo(-PRISM_ENEMY_SIZE * 0.65, PRISM_ENEMY_SIZE * 0.35);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(PRISM_ENEMY_SIZE * 0.65, PRISM_ENEMY_SIZE * 0.35);
+        ctx.strokeStyle = "rgba(255, 222, 170, 0.8)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      for (const enemy of glitchEnemies) {
+        const flicker = Math.sin(performance.now() / 11) * 2.5;
+        const jitterX = Math.sin(performance.now() / 23) * 3;
+        const jitterY = Math.cos(performance.now() / 29) * 3;
+        ctx.save();
+        ctx.translate(enemy.x + jitterX, enemy.y + jitterY);
+        ctx.globalAlpha = 0.42;
+        ctx.fillStyle = "#ff4d4d";
+        ctx.fillRect(-GLITCH_ENEMY_RADIUS + flicker, -GLITCH_ENEMY_RADIUS * 0.55, GLITCH_ENEMY_RADIUS * 1.1, GLITCH_ENEMY_RADIUS * 1.1);
+        ctx.fillStyle = "#35c96b";
+        ctx.fillRect(-GLITCH_ENEMY_RADIUS * 1.35, -7 + flicker, GLITCH_ENEMY_RADIUS * 2.7, 14);
+        ctx.fillStyle = "#4da6ff";
+        ctx.beginPath();
+        ctx.moveTo(0, -GLITCH_ENEMY_RADIUS * 1.35);
+        ctx.lineTo(GLITCH_ENEMY_RADIUS, GLITCH_ENEMY_RADIUS * 0.8);
+        ctx.lineTo(-GLITCH_ENEMY_RADIUS, GLITCH_ENEMY_RADIUS * 0.8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "#a64dff";
+        ctx.beginPath();
+        ctx.arc(flicker, 0, GLITCH_ENEMY_RADIUS * 0.78, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = "#ff861f";
+        ctx.beginPath();
+        ctx.moveTo(0, -GLITCH_ENEMY_RADIUS);
+        ctx.lineTo(GLITCH_ENEMY_RADIUS * 0.55, -GLITCH_ENEMY_RADIUS * 0.25);
+        ctx.lineTo(GLITCH_ENEMY_RADIUS * 0.55, GLITCH_ENEMY_RADIUS * 0.25);
+        ctx.lineTo(0, GLITCH_ENEMY_RADIUS);
+        ctx.lineTo(-GLITCH_ENEMY_RADIUS * 0.55, GLITCH_ENEMY_RADIUS * 0.25);
+        ctx.lineTo(-GLITCH_ENEMY_RADIUS * 0.55, -GLITCH_ENEMY_RADIUS * 0.25);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-GLITCH_ENEMY_RADIUS, -GLITCH_ENEMY_RADIUS, GLITCH_ENEMY_RADIUS * 2, GLITCH_ENEMY_RADIUS * 2);
+        ctx.restore();
+        if (
+          enemy.state === "aiming" ||
+          enemy.state === "aiming-prism-first" ||
+          enemy.state === "aiming-prism-second" ||
+          enemy.state === "aiming-prism-final"
+        ) {
+          ctx.save();
+          ctx.strokeStyle = enemy.pattern === "prism"
+            ? "rgba(255, 145, 55, 0.8)"
+            : "rgba(77, 166, 255, 0.75)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([8, 8]);
+          ctx.beginPath();
+          ctx.moveTo(enemy.x, enemy.y);
+          if (enemy.pattern === "triangle") {
+            const trajectoryLength = Math.hypot(canvas.width, canvas.height);
+            ctx.lineTo(enemy.x + enemy.dx * trajectoryLength, enemy.y + enemy.dy * trajectoryLength);
+          } else {
+            ctx.lineTo(enemy.targetX, enemy.targetY);
+          }
+          ctx.stroke();
+          if (enemy.pattern === "prism") {
+            const pulse = 1 + Math.sin(performance.now() / 90) * 0.18;
+            const markerRadius = 9 * pulse;
+            ctx.setLineDash([]);
+            ctx.strokeStyle = "#ffb36b";
+            ctx.beginPath();
+            ctx.arc(enemy.targetX, enemy.targetY, markerRadius, 0, Math.PI * 2);
+            ctx.moveTo(enemy.targetX - markerRadius * 1.5, enemy.targetY);
+            ctx.lineTo(enemy.targetX + markerRadius * 1.5, enemy.targetY);
+            ctx.moveTo(enemy.targetX, enemy.targetY - markerRadius * 1.5);
+            ctx.lineTo(enemy.targetX, enemy.targetY + markerRadius * 1.5);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+
+      for (const enemy of triangleEnemies) {
+        if (enemy.state === "aiming") {
+          ctx.save();
+          ctx.strokeStyle = "rgba(77, 166, 255, 0.7)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([10, 8]);
+          ctx.beginPath();
+          ctx.moveTo(enemy.x, enemy.y);
+          const trajectoryLength = Math.hypot(canvas.width, canvas.height);
+          ctx.lineTo(enemy.x + enemy.dx * trajectoryLength, enemy.y + enemy.dy * trajectoryLength);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.rotate(Math.atan2(enemy.dy, enemy.dx) + Math.PI / 2);
+        ctx.fillStyle = "#4da6ff";
+        ctx.beginPath();
+        ctx.moveTo(0, -enemy.size);
+        ctx.lineTo(enemy.size * 0.85, enemy.size * 0.75);
+        ctx.lineTo(-enemy.size * 0.85, enemy.size * 0.75);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (triangleBoss) {
+        for (const enemy of triangleBoss.members) {
+          if (enemy.exited) continue;
+          if (bossActionsStarted && enemy.state === "aiming") {
+            ctx.save();
+            ctx.strokeStyle = "rgba(77, 166, 255, 0.7)";
+            ctx.lineWidth = 3;
+            ctx.setLineDash([10, 8]);
+            ctx.beginPath();
+            ctx.moveTo(enemy.x, enemy.y);
+            const trajectoryLength = Math.hypot(canvas.width, canvas.height);
+            ctx.lineTo(enemy.x + enemy.dx * trajectoryLength, enemy.y + enemy.dy * trajectoryLength);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          ctx.save();
+          ctx.translate(enemy.x, enemy.y);
+          ctx.rotate(Math.atan2(enemy.dy, enemy.dx) + Math.PI / 2);
+          ctx.fillStyle = "#4da6ff";
+          ctx.beginPath();
+          ctx.moveTo(0, -enemy.size);
+          ctx.lineTo(enemy.size * 0.85, enemy.size * 0.75);
+          ctx.lineTo(-enemy.size * 0.85, enemy.size * 0.75);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = "#b8dcff";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      if (boss) {
+        if (bossActionsStarted && boss.state === "aiming") {
+          const progress = 1 - boss.aimTimer / boss.aimDuration;
+          const trajectoryLength = Math.hypot(canvas.width, canvas.height);
+          ctx.save();
+          ctx.strokeStyle = `rgba(255, 55, 65, ${0.2 + progress * 0.65})`;
+          ctx.lineWidth = 2 + progress * 22;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          ctx.moveTo(boss.x + boss.size / 2, boss.y + boss.size / 2);
+          ctx.lineTo(
+            boss.x + boss.size / 2 + boss.dx * trajectoryLength,
+            boss.y + boss.size / 2 + boss.dy * trajectoryLength
+          );
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.fillStyle = "#e53935";
+        ctx.fillRect(boss.x, boss.y, boss.size, boss.size);
+        ctx.strokeStyle = "#ff9a9a";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(boss.x + 2, boss.y + 2, boss.size - 4, boss.size - 4);
+      }
+
+      if (greenBoss) {
+        ctx.save();
+        ctx.translate(greenBoss.charge.x, greenBoss.charge.y);
+        ctx.rotate(greenBoss.charge.angle);
+        ctx.fillStyle = "#35c96b";
+        ctx.fillRect(
+          -GREEN_BOSS_SIZE.width / 2,
+          -GREEN_BOSS_SIZE.height / 2,
+          GREEN_BOSS_SIZE.width,
+          GREEN_BOSS_SIZE.height
+        );
+        ctx.strokeStyle = "#a6f0bd";
+        ctx.lineWidth = 5;
+        ctx.strokeRect(
+          -GREEN_BOSS_SIZE.width / 2 + 2,
+          -GREEN_BOSS_SIZE.height / 2 + 2,
+          GREEN_BOSS_SIZE.width - 4,
+          GREEN_BOSS_SIZE.height - 4
+        );
+        ctx.restore();
+      }
+
+      // Score
+      ctx.fillStyle = "#fff";
+      ctx.font = "24px Arial";
+      ctx.fillText("Score: " + score, 10, 30);
+      ctx.fillText("Lives: " + lives, 10, 60);
+      const stageLabel = boss ? "1 Boss" : triangleBoss ? "2 Boss" : greenBoss ? "3 Boss" : purpleBoss ? "4 Boss" : purpleBossDefeated ? "5" : greenBossDefeated ? "4" : triangleBossDefeated ? "3" : bossDefeated ? "2" : "1";
+      if (score >= GLITCH_ENEMY_SCORE && stageLabel === "5") {
+        const label = "Stage: ";
+        const digitX = 10 + ctx.measureText(label).width;
+        const digitY = 120;
+        const glitchFrame = Math.floor(performance.now() / 70);
+        const fragmentColors = ["#fff", "#ff4d4d", "#4da6ff", "#35c96b", "#a64dff", "#ff8e36"];
+        ctx.fillText(label, 10, digitY);
+        for (let fragment = 0; fragment < 6; fragment++) {
+          const fragmentY = digitY - 24 + fragment * 5;
+          const shiftX = Math.sin(glitchFrame * 1.7 + fragment * 5) * (fragment % 2 ? 8 : 3);
+          const shiftY = Math.sin(glitchFrame * 0.9 + fragment * 3) * 2;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(digitX - 10, fragmentY, 38, 5);
+          ctx.clip();
+          ctx.fillStyle = fragmentColors[(fragment + glitchFrame) % fragmentColors.length];
+          ctx.fillText("5", digitX + shiftX, digitY + shiftY);
+          ctx.restore();
+        }
+      } else {
+        ctx.fillText("Stage: " + stageLabel, 10, 120);
+      }
+      if (boss) ctx.fillText("Boss wall hits: " + boss.wallHits + "/" + BOSS_REQUIRED_WALL_HITS, 10, 180);
+      if (triangleBoss) {
+        ctx.fillText("Boss volleys: " + triangleBoss.completedVolleys + "/" + TRIANGLE_BOSS_VOLLEYS, 10, 180);
+      }
+      if (greenBoss) {
+        ctx.fillText("Boss dodges: " + greenBoss.dodges + "/" + GREEN_BOSS_REQUIRED_DODGES, 10, 180);
+      }
+      if (purpleBoss) {
+        ctx.fillText("Boss wall hits: " + purpleBoss.wallHits + "/" + PURPLE_BOSS_REQUIRED_WALL_HITS, 10, 180);
+      }
+      if ((boss || triangleBoss || greenBoss || purpleBoss) && !bossActionsStarted) {
+        ctx.fillText("Move to begin the boss fight", 10, 210);
+      }
+      // Game over screen
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "40px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 20);
+
+        ctx.font = "24px Arial";
+        ctx.fillText("Press R to return to menu", canvas.width / 2, canvas.height / 2 + 30);
+        ctx.textAlign = "left";
+      }
+
+      if (performance.now() < hitFlashUntil) {
+        ctx.fillStyle = "rgba(255, 0, 0, 0.35)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (paused && !gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "48px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("Paused", canvas.width / 2, canvas.height / 2 - 12);
+        ctx.font = "24px Arial";
+        ctx.fillText("Press Space to resume", canvas.width / 2, canvas.height / 2 + 32);
+        ctx.textAlign = "left";
+      }
+    }
+
+    const GAME_STEP_MS = 1000 / 120;
+    const MAX_FRAME_DELTA_MS = 250;
+    let previousFrameTime = null;
+    let gameTimeAccumulator = 0;
+
+    function gameLoop(timestamp) {
+      if (previousFrameTime === null) previousFrameTime = timestamp;
+      gameTimeAccumulator += Math.min(timestamp - previousFrameTime, MAX_FRAME_DELTA_MS);
+      previousFrameTime = timestamp;
+
+      while (gameTimeAccumulator + 1e-7 >= GAME_STEP_MS) {
+        update();
+        gameTimeAccumulator -= GAME_STEP_MS;
+      }
+
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
